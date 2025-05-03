@@ -383,6 +383,53 @@ class SimpleProc8:
             self.dump_registers()
             print("") # Extra line for readability
 
+    def debugger(self, instruction):
+        print("\n======= SimpleProc8 Interactive Debugger =======")
+        print("Commands:")
+        print("  s - Step (execute current instruction)")
+        print("  r - Show registers")
+        print("  m [start] [end] - Dump memory from start to end address")
+        print("  d [start] [length] - Disassemble from start address")
+        print("  c - Continue debugging") 
+        print("  q - Quit debugger")
+        print("=================================================\n")
+        opcode, reg, mode = self.decode(instruction)
+        self.dump_registers()
+        self.dump_memory(0x80, 0x99)
+
+        if self.debug:
+            print(f"Executing instruction at 0x{(self.pc-1) & 0xFF:02X}: 0x{instruction:02X} (OP: {opcode:X}, REG: {reg:X}, MODE: {mode:X})")
+        
+        while True:
+            cmd = input("\nDebugger command (s/r/m/d/c/q)").strip().lower()
+            if cmd == 's' or cmd == '': #Step or repeat
+                break
+            elif cmd == 'r': #show regs
+                self.dump_registers()
+            elif cmd == 'm': # show memory dump
+                parts = cmd.split()
+                start = 0x80
+                end = 0x9F
+                if len(parts) > 1:
+                    try:
+                        start = int(parts[1], 0)
+                    except ValueError:
+                        print("invalid starting address")
+                if len(parts) > 2:
+                    try:
+                        start = int(parts[2], 0)
+                    except ValueError:
+                        print("invalid ending address")
+                self.dump_memory()
+
+            elif cmd.startswith('d'): #disas
+                start = (self.pc-1) & 0xFF #align it to 8 bit instruction
+                length = 16
+                self.disassemble(start, length)
+            elif cmd.startswith('c'):
+                self.debug = False
+                print("Continuing...")
+                break
     def run(self, start_addr=0, max_instructions=200):
         """Run the processor from a starting address."""
         self.pc = start_addr
@@ -391,9 +438,11 @@ class SimpleProc8:
 
         while self.running and self.instruction_count < max_instructions:
             instruction = self.fetch()
+            if self.debug:
+                self.debugger(instruction)
             self.execute(instruction)
             self.instruction_count += 1
-            self.dump_memory(0x80, 0x99)
+            #self.dump_memory(0x80, 0x99)
 
         if self.instruction_count >= max_instructions:
             print(f"Execution stopped: Maximum instructions ({max_instructions}) exceeded.")
@@ -533,7 +582,7 @@ def main():
     binary_file = sys.argv[1]
 
     # Check if debug mode is enabled
-    debug_mode = True
+    debug_mode = False
     if len(sys.argv) > 2 and sys.argv[2] == "--debug":
         debug_mode = True
 

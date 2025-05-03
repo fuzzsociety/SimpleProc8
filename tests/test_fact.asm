@@ -2,7 +2,7 @@
 ; Results stored at [0x99]
 ; Expected: 0x78 (120 decimal)
 
-    LD A, #0x06       ; Initialize n to 5
+    LD A, #0x05      ; Initialize n to 5
     LD B, #0x01       ; Initialize result to 1
     
 factorial_loop:
