@@ -3,7 +3,7 @@ import threading
 import time
 
 class UARTInterface:
-    def __init__(self, cpu, uart_device='/dev/ttys002', baud_rate=9600):
+    def __init__(self, cpu, uart_device='/dev/ttyVIRT2', baud_rate=9600):
         self.cpu = cpu
         self.uart_device = uart_device
         self.baud_rate = baud_rate

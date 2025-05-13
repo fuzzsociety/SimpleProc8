@@ -1,73 +1,58 @@
-; SimpleProc-8 UART Test Program
-; MMIO registers at 0xF0-0xFF
-; 0xF0: Status Register (bit 0: RX data available, bit 1: TX buffer empty, bit 7: IRQ pending)
-; 0xF1: Control Register (bit 0: RX interrupt enable, bit 1: TX interrupt enable)
-; 0xF2-0xF5: RX circular buffer (4 bytes)
-; 0xF6: RX head pointer
-; 0xF7: RX tail pointer
-; 0xF8: TX data register (writing here sends a byte)
-; 0xF9: RX data register (reading from here retrieves a byte)
-; 0xE0: UART buffer print trigger
+; UART Echo Test for SimpleProc-8
+; Sends 0x41 ('A') and 0x42 ('B') and checks if we can get the response
+; MMIO Memory layout:
+; 0xF1: UART control register
+; 0xF8: UART TX register (write)
+; 0xF9: UART RX register (read)
 
+start:
     ; Initialize UART
     LD A, #0x03      ; Enable both RX and TX interrupts
     ST A, [0xF1]     ; Store to control register
     
-    ; Send four test bytes via TX
-    LD A, #0x41      ; 'A'
+    ; Send first byte (0x41 - 'A')
+    LD A, #0x41      ; A = 'A' (0x41)
     ST A, [0xF8]     ; Send via TX register
     
-    LD A, #0x42      ; 'B'
+    ; Send second byte (0x42 - 'B')
+    LD A, #0x42      ; A = 'B' (0x42)
     ST A, [0xF8]     ; Send via TX register
     
-    LD A, #0x43      ; 'C'
-    ST A, [0xF8]     ; Send via TX register
+    ; Store expected responses for verification
+    LD A, #0x41      ; ASCII 'A'
+    ST A, [0x80]     ; Store at 0x80 (temporary storage)
+    LD A, #0x42      ; ASCII 'B'
+    ST A, [0x81]     ; Store at 0x81 (temporary storage)
     
-    LD A, #0x44      ; 'D'
-    ST A, [0xF8]     ; Send via TX register
+    ; Wait for first echo (either using RX interrupt or polling)
+    ; Since you mentioned echo, I'll assume we need to read back what we sent
+wait_rx_1:
+    LD A, [0xF9]     ; Read from RX register
+    LD B, [0x80]     ; Load expected response ('A')
+    SUB A, B         ; Compare received vs expected
+    JZ rx_1_ok       ; If match, continue to next byte
+    JMP wait_rx_1    ; Keep trying if no match
     
-    ; Set RX buffer pointers
-    LD A, #0x03      ; Head points to last written byte
-    ST A, [0xF6]     ; Set RX head pointer
+rx_1_ok:
+    ; First byte received correctly, wait for second echo
+    LD A, #0xAA      ; Success code for first byte
+    ST A, [0x90]     ; Store success indicator
     
-    LD A, #0x00      ; Start reading from beginning
-    ST A, [0xF7]     ; Set RX tail pointer
+wait_rx_2:
+    LD A, [0xF9]     ; Read from RX register
+    LD B, [0x81]     ; Load expected response ('B')
+    SUB A, B         ; Compare received vs expected
+    JZ rx_2_ok       ; If match, we're done
+    JMP wait_rx_2    ; Keep trying if no match
     
-    ; Set RX data available bit and IRQ pending
-    LD A, #0x81      ; Set bit 0 (RX data available) and bit 7 (IRQ pending)
-    ST A, [0xF0]     ; Update status register
+rx_2_ok:
+    ; Both bytes received correctly
+    LD A, #0xAA      ; Success code for second byte
+    ST A, [0x91]     ; Store success indicator
     
+    ; Overall success indicator
+    LD A, #0x01      ; Success code
+    ST A, [0xFF]     ; Store at 0xFF to indicate success
     
-    ; Read back the received data
-    LD A, [0xF9]     ; Read first byte (from RX buffer[0])
-    ST A, [0x80]     ; Store to memory location 0x80
-    
-    LD A, [0xF9]     ; Read second byte (from RX buffer[1])
-    ST A, [0x81]     ; Store to memory location 0x81
-    
-    LD A, [0xF9]     ; Read third byte (from RX buffer[2])
-    ST A, [0x82]     ; Store to memory location 0x82
-    
-    LD A, [0xF9]     ; Read third byte (from RX buffer[3])
-    ST A, [0x83]     ; Store to memory location 0x83
-
-    ; Check final status
-    LD A, [0xF0]     ; Read status register
-    ST A, [0x84]     ; Store to memory location 0x84
-    
-    ; Check final RX buffer pointers
-    LD A, [0xF6]     ; Read RX head pointer
-    ST A, [0x85]     ; Store to memory
-    
-    LD A, [0xF7]     ; Read RX tail pointer
-    ST A, [0x86]     ; Store to memory
-    
-    ; Set completion flag
-    LD A, #0xFF      ; Success value
-    ST A, [0x8F]     ; Store at memory location 0x8F
-
-    ; Trigger the print_uart_buffer function
-    LD A, #0x01      ; Value to trigger printing
-    ST A, [0xE0]     ; Set the UART buffer print trigger
-    
-    HLT              ; End program
+done:
+    HLT              ; End programx

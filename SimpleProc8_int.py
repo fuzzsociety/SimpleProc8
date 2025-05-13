@@ -1,5 +1,6 @@
 import sys
 import os
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 # Import the UART backend
 try:
@@ -69,12 +70,7 @@ class SimpleProc8:
         # TX Buffer (4 bytes)
         self.memory[0xF8] = 0  # TX data register
         self.memory[0xF9] = 0  # RX data register
-        self.memory[0xFA] = 0  # TX buffer[0]
-        self.memory[0xFB] = 0  # TX buffer[1]
-        self.memory[0xFC] = 0  # TX buffer[2]
-        self.memory[0xFD] = 0  # TX buffer[3]
-        self.memory[0xFE] = 0  # TX head pointer
-        self.memory[0xFF] = 0  # TX tail pointer
+
 
         
         # Interrupt flags
@@ -95,7 +91,7 @@ class SimpleProc8:
         self.running = True
 
         # Debug mode
-        self.debug = True
+        self.debug = False
 
         # Instruction count for statistics
         self.instruction_count = 0
@@ -178,10 +174,13 @@ class SimpleProc8:
         return opcode, reg, mode
     
     def print_uart_buffer(self):
+        print("printing buffer....")
         out = []
-        if (self.irq_pending) and self.memory[0xE0] == 1:
-            for i in range(3): #UART BUFFER is 4 bytes
-                byte_value = self.memory[0xF2+i]
+        if (self.irq_pending) and self.memory[0x87] > 0:
+            # Use the value at 0xE0 as the count
+            count = min(4, self.memory[0x87])  # Limit to 4 bytes maximum
+            for i in range(count):
+                byte_value = self.memory[0x80+i]  # Read from copied data
                 # Convert integer to character
                 char = chr(byte_value) if 32 <= byte_value <= 126 else f"\\x{byte_value:02x}"
                 out.append(char)
@@ -593,8 +592,9 @@ class SimpleProc8:
         
         # Check if buffer is full
         if next_head == tail:
-            #if self.debug:
-            #    print("UART buffer full, dropping byte")
+            if self.debug:
+                print("UART buffer full, dropping byte")
+            # Could set an overflow flag in status register here
             return False
         
         # Store in the appropriate buffer position
@@ -607,13 +607,30 @@ class SimpleProc8:
         # Set RX data available bit in status register
         self.memory[0xF0] |= 0x01
         
-        # If RX interrupt enabled, set pending
+        # Calculate buffer fullness - how many bytes are in the buffer
+        if next_head >= tail:
+            buffer_fullness = next_head - tail
+        else:
+            buffer_fullness = 4 - (tail - next_head)
+        
+        # If RX interrupt enabled, check when to trigger it
         if self.memory[0xF1] & 0x01:
-            self.memory[0xF0] |= 0x80  # Set IRQ pending bit
-            self.irq_pending = True
+            # Option 1: Only when buffer is full (or nearly full)
+            if buffer_fullness >= 3:  # Trigger when 3 or 4 bytes are in buffer
+                self.memory[0xF0] |= 0x80  # Set IRQ pending bit
+                self.irq_pending = True
+                if self.debug:
+                    print(f"IRQ pending set - buffer is almost full ({buffer_fullness}/4 bytes)")
+            
+            # Option 2: Trigger on configurable threshold stored at 0xFE (if you add this)
+            # threshold = self.memory[0xFE]
+            # if buffer_fullness >= threshold:
+            #     self.memory[0xF0] |= 0x80  # Set IRQ pending bit
+            #     self.irq_pending = True
         
         if self.debug:
             print(f"UART RX received: 0x{byte:02X} ('{chr(byte)}' if 32 <= byte <= 126 else '')")
+            print(f"Buffer fullness: {buffer_fullness}/4 bytes")
         
         return True
     
@@ -862,7 +879,7 @@ def main():
     try:
         # Run the program
         print("\nExecuting program...")
-        cpu.run(max_instructions=1500)
+        cpu.run(max_instructions=15000)
         print("\nFinal state:")
         cpu.dump_registers()
         cpu.dump_memory(0x80, 0x100)  # Show memory region with results
