@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-import sys
-import os
 import logging
+import os
+import sys
+
 
 class SimpleProc8Assembler:
     """
@@ -364,8 +365,7 @@ class SimpleProc8Assembler:
                 
                 parsed = self._parse_line(line)
                 from pprint import pprint
-                
-                
+
                 # Skip empty lines and comments
                 if not parsed:
                     continue
@@ -582,22 +582,51 @@ class SimpleProc8Assembler:
                 
         elif instruction['opcode'] in ['ADD', 'SUB', 'AND', 'OR', 'XOR']:
             if len(instruction['operands']) < 2:
-                raise SyntaxError(f"{instruction['opcode']} requires two operands: {instruction}")
+                self._debug_print(f"{instruction['opcode']} requires at least two operands: {instruction}")
             
-            reg1_name = instruction['operands'][0]
-            reg2_name = instruction['operands'][1]
-            
-            if reg1_name not in self.registers or reg2_name not in self.registers:
-                raise SyntaxError(f"Invalid register(s): {reg1_name}, {reg2_name}")
-            
-            reg1 = self.registers[reg1_name]
-            reg2 = self.registers[reg2_name]
-            
-            inst_byte = (opcode << 4) | (reg1 << 2) | reg2
-            binary.append(inst_byte)
-            
-            if self.debug:
-                self._debug_print(f"{instruction['opcode']} {reg1_name}, {reg2_name} => {self.format_binary(binary, 'hex')}")
+            """
+            Check if it's 3-operand form (ADD Rd, Rs1, Rs2)
+            For 3-Operand form instructions, ONLY register to register mode (0b11) is supported yet.
+            """
+            if len(instruction['operands']) == 3:
+                dest_name = instruction['operands'][0]
+                src1_name = instruction['operands'][1]  
+                src2_name = instruction['operands'][2]
+                
+                if dest_name not in self.registers or src1_name not in self.registers or src2_name not in self.registers:
+                    raise SyntaxError(f"Invalid register(s): {dest_name}, {src1_name}, {src2_name}")
+                
+                dest_reg = self.registers[dest_name]
+                src1_reg = self.registers[src1_name]
+                src2_reg = self.registers[src2_name]
+                
+                # Use mode 0b11 for 3-operand format
+                inst_byte = (opcode << 4) | (dest_reg << 2) | 0b11
+                binary.append(inst_byte)
+                
+                # Pack both source registers into next byte: src1 in upper 2 bits, src2 in lower 2 bits
+                operands_byte = (src1_reg << 2) | src2_reg
+                binary.append(operands_byte)
+                
+                if self.debug:
+                    self._debug_print(f"{instruction['opcode']} {dest_name}, {src1_name}, {src2_name} => {self.format_binary(binary, 'hex')}")
+                    
+            else:
+                # 2-operand form (ADD Rd, Rs)
+                reg1_name = instruction['operands'][0]
+                reg2_name = instruction['operands'][1]
+                
+                if reg1_name not in self.registers or reg2_name not in self.registers:
+                    raise SyntaxError(f"Invalid register(s): {reg1_name}, {reg2_name}")
+                
+                reg1 = self.registers[reg1_name]
+                reg2 = self.registers[reg2_name]
+                
+                inst_byte = (opcode << 4) | (reg1 << 2) | reg2
+                binary.append(inst_byte)
+                
+                if self.debug:
+                    self._debug_print(f"{instruction['opcode']} {reg1_name}, {reg2_name} => {self.format_binary(binary, 'hex')}")
             
         elif instruction['opcode'] in ['INC', 'DEC', 'NOT']:
             if len(instruction['operands']) < 1:
@@ -981,7 +1010,7 @@ class SimpleProc8Assembler:
 # Main function to handle command line arguments
 def main():
     import argparse
-    
+
     # Set up command line arguments
     parser = argparse.ArgumentParser(
         description="SimpleProc-8 Assembler",
