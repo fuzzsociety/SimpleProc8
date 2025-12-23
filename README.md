@@ -13,7 +13,7 @@ You have a basic test suite with jumps, conditions, even bubblesort.
 Send your PRs - we will look at them
 
 ## CPU Structure
-Check the README_int.md
+Check the README_interpreter.md
 
 
 ## 2-pass Assembler Structure
