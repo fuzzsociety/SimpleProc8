@@ -169,26 +169,52 @@ class SimpleProc8:
             if self.debug:
                 print(f"ST {reg_name}, [B]")
 
-    def _add(self, reg, operand):
-        """Add operation: ADD Rx, Ry"""
-        reg_name = self._get_register(reg)
-        operand_name = self._get_register(operand)
-
-        result = self.registers[reg_name] + self.registers[operand_name]
-
-        # Set carry flag if result exceeds 8 bits
-        self.flags['C'] = (result > 0xFF)
-
-        # Handle overflow for signed addition
-        a = self.registers[reg_name]
-        b = self.registers[operand_name]
-        self.flags['V'] = ((a & 0x80) == (b & 0x80)) and ((result & 0x80) != (a & 0x80))
+    def _add(self, reg, mode):
+        """Add operation: ADD Rx, Ry (2-operand) or ADD Rd, Rs1, Rs2 (3-operand)"""
+        dest_name = self._get_register(reg)
+        
+        if mode == 0b11:  # 3-operand form: ADD Rd, Rs1, Rs2
+            # Fetch the next byte which contains both source operands
+            operand_byte = self.fetch()
+            src1_code = (operand_byte >> 2) & 0x03  # Upper 2 bits for source 1
+            src2_code = operand_byte & 0x03         # Lower 2 bits for source 2
+            
+            src1_name = self._get_register(src1_code)
+            src2_name = self._get_register(src2_code)
+            
+            # For 3-operand: destination = source1 + source2
+            result = self.registers[src1_name] + self.registers[src2_name]
+            
+            # Set carry flag if result exceeds 8 bits
+            self.flags['C'] = (result > 0xFF)
+            
+            # Handle overflow for signed addition
+            a = self.registers[src1_name]
+            b = self.registers[src2_name]
+            self.flags['V'] = ((a & 0x80) == (b & 0x80)) and ((result & 0x80) != (a & 0x80))
+            
+            if self.debug:
+                print(f"ADD {dest_name}, {src1_name}, {src2_name}")
+                
+        else:  # 2-operand form: ADD Rx, Ry (Rx = Rx + Ry)
+            src_name = self._get_register(mode)
+            
+            # For 2-operand: destination = destination + source
+            result = self.registers[dest_name] + self.registers[src_name]
+            
+            # Set carry flag if result exceeds 8 bits
+            self.flags['C'] = (result > 0xFF)
+            
+            # Handle overflow for signed addition
+            a = self.registers[dest_name]
+            b = self.registers[src_name]
+            self.flags['V'] = ((a & 0x80) == (b & 0x80)) and ((result & 0x80) != (a & 0x80))
+            
+            if self.debug:
+                print(f"ADD {dest_name}, {src_name}")
 
         # Update flags and store result
-        self.registers[reg_name] = self._update_flags(result)
-
-        if self.debug:
-            print(f"ADD {reg_name}, {operand_name}")
+        self.registers[dest_name] = self._update_flags(result)
 
     def _sub(self, reg, operand):
         """Subtract operation: SUB Rx, Ry"""
@@ -523,7 +549,20 @@ class SimpleProc8:
                 elif mode == 0b01:  # Indirect
                     print(f"  0x{addr:02X}: ST {reg_name}, [B]")
             elif opcode == 0b0010:  # ADD
-                print(f"  0x{addr:02X}: ADD {reg_name}, {mode_name}")
+                if mode == 0b11:  # 3-operand ADD: ADD Rd, Rs1, Rs2
+                    if self.pc < 256:
+                        operand_byte = self.memory[self.pc]
+                        src1_code = (operand_byte >> 2) & 0x03
+                        src2_code = operand_byte & 0x03
+                        src1_name = self._get_register(src1_code)
+                        src2_name = self._get_register(src2_code)
+                        self.pc = (self.pc + 1) & 0xFF
+                        i += 1
+                        print(f"  0x{addr:02X}: ADD {reg_name}, {src1_name}, {src2_name}")
+                    else:
+                        print(f"  0x{addr:02X}: ADD {reg_name}, ???, ???")
+                else:  # 2-operand ADD: ADD Rx, Ry
+                    print(f"  0x{addr:02X}: ADD {reg_name}, {mode_name}")
             elif opcode == 0b0011:  # SUB
                 print(f"  0x{addr:02X}: SUB {reg_name}, {mode_name}")
             elif opcode == 0b0100:  # INC
