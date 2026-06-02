@@ -337,11 +337,25 @@ class SimpleProc8Assembler:
                 # Otherwise it's a memory address, 2 bytes
                 return 2
                 
-        elif opcode in ['JMP', 'JZ', 'JNZ', 'JC']:
-            # Jump instructions always 2 bytes (opcode + target)
+        elif opcode == 'JMP':
+            # JMP [Rx] (register indirect) is 1 byte; JMP addr/label is 2 bytes
+            if operands:
+                op_str = operands[0]
+                if op_str.startswith('[') and op_str.endswith(']') and op_str[1:-1] in self.registers:
+                    return 1
+            return 2
+
+        elif opcode in ['JZ', 'JNZ', 'JC']:
+            # Conditional jumps always carry a target byte - 2 bytes
             return 2
             
-        # All other instructions (ADD, SUB, INC, DEC, NOP, HLT, etc.) are 1 byte
+        elif opcode in ['ADD', 'SUB', 'AND', 'OR', 'XOR']:
+            # 3-operand form (ADD Rd, Rs1, Rs2) emits a second packed byte
+            if len(operands) == 3:
+                return 2
+            return 1
+
+        # All other instructions (INC, DEC, NOT, NOP, HLT, etc.) are 1 byte
         return size   
 
     def _first_passe(self, assembly_code):
