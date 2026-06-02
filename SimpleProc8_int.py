@@ -456,6 +456,9 @@ class SimpleProc8:
                 self.debug = False
                 print("Continuing...")
                 break
+            elif cmd.startswith('q'):
+                self.running = False
+                break
     def run(self, start_addr=0, max_instructions=200):
         """Run the processor from a starting address."""
         self.pc = start_addr
