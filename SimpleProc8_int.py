@@ -488,13 +488,13 @@ class SimpleProc8:
                 break
             elif cmd == 'r': #show regs
                 self.dump_registers()
-            elif cmd == 'm': # show memory dump
+            elif cmd.startswith('m'): # show memory dump
                 parts = cmd.split()
                 start = 0x80
                 end = 0x9F
                 if len(parts) > 1:
                     try:
-                        start = int(parts[1], 0)
+                        end = int(parts[2], 0)
                     except ValueError:
                         print("invalid starting address")
                 if len(parts) > 2:
@@ -502,7 +502,7 @@ class SimpleProc8:
                         start = int(parts[2], 0)
                     except ValueError:
                         print("invalid ending address")
-                self.dump_memory()
+                self.dump_memory(start, 1+end)
 
             elif cmd.startswith('d'): #disas
                 start = (self.pc-1) & 0xFF #align it to 8 bit instruction
