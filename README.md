@@ -1,7 +1,9 @@
 # SimpleProc8
 This repository from fuzzsociety.org contains a basic CPU written in Python3 - The SimpleProc8 (This should sound in in Italian as simple prosciutto - ham)
 
-This repository will be used for the OpenSecurityTraining2 Emulation 101 - From Zero to QEMU course. Upcoming fall '25
+This is the original repository OpenSecurityTraining2 Architecture 1901 From Zero to QEMU course.
+
+https://ost2.fyi/Arch1901
 
 ## Testing 
 
