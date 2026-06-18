@@ -76,12 +76,7 @@ class UARTInterface:
                 check_count += 1
                 if check_count % 500 == 0:  # Every ~5 seconds (500 * 0.01s)
                     #print(f"UART RX checking: in_waiting={self.serial_conn.in_waiting}")
-                    # Try writing a test byte to keep connection active
-                    try:
-                        self.serial_conn.write(b'\x00')  # Send null byte as keepalive
-                        self.serial_conn.flush()
-                    except:
-                        pass
+                    pass
                 
                 # Check for data with timeout
                 bytes_waiting = self.serial_conn.in_waiting

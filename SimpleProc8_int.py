@@ -1,5 +1,7 @@
 import sys
 import os
+import threading
+import time
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 # Import the UART backend
@@ -78,6 +80,10 @@ class SimpleProc8:
         
         # UART connected status
         self.uart_connected = False
+
+        # Lock protecting the UART ring buffer and status registers, which are
+        # shared between the CPU thread and the backend RX thread.
+        self.uart_lock = threading.RLock()
 
         # Interrupt flags
         self.irq_pending = False
@@ -514,7 +520,22 @@ class SimpleProc8:
                 break
 
     def handle_mmio_read(self, address):
-        """Handle MMIO region read access."""
+        """Thread-safe wrapper around the MMIO read handler."""
+        with self.uart_lock:
+            rx_poll_miss = self._handle_mmio_read(address)
+        # If the program polled the RX register while the buffer was empty,
+        # yield the GIL so the backend RX thread can deliver pending bytes.
+        # Without this the CPU busy-poll loop starves the RX thread and the
+        # echoed byte can arrive only after the instruction budget is spent.
+        if rx_poll_miss and self.uart_connected:
+            time.sleep(0.0002)
+
+    def _handle_mmio_read(self, address):
+        """Handle MMIO region read access.
+
+        Returns True when the program read the RX data register while no byte
+        was available (a poll miss), so the caller can yield to the RX thread.
+        """
         # Only process MMIO region
         if self.mmio_start <= address <= self.mmio_end:
             # Handle special MMIO reads
@@ -559,8 +580,15 @@ class SimpleProc8:
                     # No data available - return last value and don't change anything
                     if self.debug:
                         print("UART RX read attempted but no data available")
+                    return True
+        return False
 
     def handle_mmio_write(self, address, value):
+        """Thread-safe wrapper around the MMIO write handler."""
+        with self.uart_lock:
+            self._handle_mmio_write(address, value)
+
+    def _handle_mmio_write(self, address, value):
         """Handle MMIO region write access."""
         # Only process MMIO region
         if self.mmio_start <= address <= self.mmio_end:
@@ -583,6 +611,10 @@ class SimpleProc8:
 
     def uart_rx_byte(self, byte):
         """Called by Python backend when data is received from UART."""
+        with self.uart_lock:
+            return self._uart_rx_byte(byte)
+
+    def _uart_rx_byte(self, byte):
         # Get current head pointer
         head = self.memory[0xF6]
         tail = self.memory[0xF7]
