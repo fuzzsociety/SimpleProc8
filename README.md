@@ -1,5 +1,5 @@
 # SimpleProc8
-This repository from fuzzsociety.org contains a basic CPU written in Python3 - The SimpleProc8 (This should sound in in Italian as simple prosciutto - ham)
+This repository from fuzzsociety.org contains a basic CPU written in Python3 - The SimpleProc8 (This should sound in Italian as simple prosciutto - ham)
 
 This is the original repository OpenSecurityTraining2 Architecture 1901 From Zero to QEMU course.
 
