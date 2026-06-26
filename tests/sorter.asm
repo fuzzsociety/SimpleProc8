@@ -1,6 +1,7 @@
 ; Bubble Sort implementation for SimpleProc-8
 ; Memory layout:
 ; 0x80-0xBF: Array to be sorted (64 elements max)
+; 0xFD: Temporary storage for element swap
 ; 0xFE: Array length
 ; 0xFF: Temporary storage for inner loop counter
 
@@ -47,13 +48,13 @@ inner_loop:
     
     ; We get here if A > D, meaning array[j] > array[j+1], so swap needed
     LD A, [B]        ; A = array[j]
-    ST A, [0x100]    ; Save array[j] temporarily
+    ST A, [0xFD]     ; Save array[j] temporarily
     INC B            ; B points to array[j+1]
     LD A, [B]        ; A = array[j+1]
     DEC B            ; B back to array[j]
     ST A, [B]        ; array[j] = array[j+1]
     INC B            ; B points to array[j+1]
-    LD A, [0x100]    ; A = original array[j]
+    LD A, [0xFD]     ; A = original array[j]
     ST A, [B]        ; array[j+1] = original array[j]
     DEC B            ; B back to array[j]
     

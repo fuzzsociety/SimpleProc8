@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-import sys
-import os
 import logging
+import os
+import sys
+
 
 class SimpleProc8Assembler:
     """
@@ -319,14 +320,17 @@ class SimpleProc8Assembler:
             # Register-to-register LD Rx, Ry - FIX: Always 2 bytes
             if op2_str in self.registers:
                 return 2
-                
+
+            # Bare direct address or label: LD Rx, 0x44 / LD Rx, label - 2 bytes
+            return 2
+
         elif opcode == 'ST':
             if len(operands) < 2:
                 return size
-                
+
             # Parse second operand
             op2_str = operands[1]
-            
+
             # Direct memory access ST Rx, [addr] - 2 bytes
             if op2_str.startswith('[') and op2_str.endswith(']'):
                 inner = op2_str[1:-1]
@@ -335,103 +339,63 @@ class SimpleProc8Assembler:
                     return 1
                 # Otherwise it's a memory address, 2 bytes
                 return 2
-                
-        elif opcode in ['JMP', 'JZ', 'JNZ', 'JC']:
-            # Jump instructions always 2 bytes (opcode + target)
+
+            # Bare direct address or label: ST Rx, 0x44 / ST Rx, label - 2 bytes
+            return 2
+
+        elif opcode == 'JMP':
+            # JMP [Rx] (register indirect) is 1 byte; JMP addr/label is 2 bytes
+            if operands:
+                op_str = operands[0]
+                if op_str.startswith('[') and op_str.endswith(']') and op_str[1:-1] in self.registers:
+                    return 1
+            return 2
+
+        elif opcode in ['JZ', 'JNZ', 'JC']:
+            # Conditional jumps always carry a target byte - 2 bytes
             return 2
             
-        # All other instructions (ADD, SUB, INC, DEC, NOP, HLT, etc.) are 1 byte
-        return size   
+        elif opcode in ['ADD', 'SUB', 'AND', 'OR', 'XOR']:
+            # 3-operand form (ADD Rd, Rs1, Rs2) emits a second packed byte
+            if len(operands) == 3:
+                return 2
+            return 1
 
-    def _first_passe(self, assembly_code):
-        """First pass: build symbol table and intermediate representation."""
-        lines = assembly_code.split('\n')
-        self.source_lines = lines
-        self.address = 0
-        self.symbol_table = {}
-        self.intermediate = []
-        
-        # Track both logical instruction address and binary offset
-        binary_offset = 0
-        
-        if self.debug:
-            self._debug_print("Starting first pass...")
-        
-        for line_num, line in enumerate(lines, 1):
-            try:
-                if self.debug:
-                    self._debug_print(f"Processing line {line_num}: {line}")
-                
-                parsed = self._parse_line(line)
-                from pprint import pprint
-                
-                
-                # Skip empty lines and comments
-                if not parsed:
-                    continue
-                
-                # Handle labels
-                if parsed['type'] == 'label':
-                    # Use binary_offset for symbol table
-                    self.symbol_table[parsed['name']] = binary_offset
-                    if self.debug:
-                        self._debug_print(f"Defined label '{parsed['name']}' at binary offset 0x{binary_offset:02X}")
-                    continue
-                
-                # For instructions with a label, add to symbol table
-                if parsed['label']:
-                    # Use binary_offset for symbol table
-                    self.symbol_table[parsed['label']] = binary_offset
-                    if self.debug:
-                        self._debug_print(f"Defined label '{parsed['label']}' at binary offset 0x{binary_offset:02X}")
-                
-                # Add line number and source text for debugging
-                parsed['line_num'] = line_num
-                parsed['source'] = line
-                
-                # Add to intermediate representation with both address trackers
-                parsed['address'] = self.address  # Logical instruction address
-                parsed['binary_offset'] = binary_offset  # Actual byte offset in binary
-                self.intermediate.append(parsed)
-                
-                # Calculate instruction size
-                instruction_size = 0
-                
-                if parsed['opcode'] in ['LD', 'ST']:
-                    instruction_size = 1  # half byte opcode, half byte operand
-                    
-                    # Check if there's a second operand for memory access
-                    if parsed['operands'] and len(parsed['operands']) > 1:
-                        operand = self._parse_operand(parsed['operands'][1])
-                        if operand['type'] in ['direct', 'immediate', 'address']:
-                            instruction_size += 1  # Add another byte for address or immediate
-                
-                elif parsed['opcode'] in ['JMP', 'JZ', 'JNZ', 'JC']:
-                    instruction_size = 2  # 1 byte opcode, 1 byte target address
-                    
-                else:
-                    instruction_size = 1  # Single byte instructions
-                
-                self.address += 1  # Logical instruction count always increments by 1
-                binary_offset += instruction_size  # Binary offset increments by actual instruction size
-                
-                if self.debug:
-                    self._debug_print(f"Instruction size: {instruction_size} bytes, next binary offset: 0x{binary_offset:02X}")
-                    self._debug_print(f"Logical instruction address: 0x{self.address:02X}")
-                pprint(parsed)
-                
-            except Exception as e:
-                error_msg = f"Error on line {line_num}: {line}"
-                self._debug_print(error_msg)
-                self._debug_print(f"Exception: {str(e)}")
-                raise SyntaxError(f"{error_msg}\n{str(e)}")
-        
-        # Print the symbol table for debugging
-        if self.debug:
-            self._debug_print("\nSymbol Table after first pass:")
-            for label, addr in sorted(self.symbol_table.items(), key=lambda x: x[1]):
-                self._debug_print(f"    Symbol reference: {label} -> 0x{addr:02X} (at offset +0)")
+        # All other instructions (INC, DEC, NOT, NOP, HLT, etc.) are 1 byte
+        return size   
     
+    def _is_direct_operand(self, op):
+        """True if an operand denotes a direct memory address.
+
+        Accepts both the bracketed forms ([0x44] / [label], parsed as
+        'direct') and the bare forms (0x44 / label, parsed as 'address' /
+        'label'), so LD and ST treat them identically."""
+        return op['type'] in ('direct', 'address', 'label')
+
+    def _append_direct_address(self, binary, op, symbol_refs, instruction, mnemonic, reg_name):
+        """Append the address byte for a direct-addressed LD/ST.
+
+        Resolves labels via the symbol table and records the reference.
+        Handles the differing operand-dict shapes ('address'/'value' for a
+        numeric address, 'label'/'name' for a label) uniformly."""
+        addr = op.get('address', op.get('value'))
+        label = op.get('label', op.get('name'))
+
+        if label is not None:
+            if label not in self.symbol_table:
+                raise SyntaxError(f"Undefined label: {label}")
+            addr = self.symbol_table[label]
+            symbol_refs.append({
+                'name': label,
+                'addr': instruction.get('binary_offset', 0) + 1,  # Byte after opcode
+                'resolved_to': addr
+            })
+
+        binary.append(addr & 0xFF)
+        if self.debug:
+            shown = f"[{label}]" if label is not None else f"[0x{addr:02X}]"
+            self._debug_print(f"{mnemonic} {reg_name}, {shown} => {self.format_binary(binary, 'hex')}")
+
     def _assemble_instruction(self, instruction):
         """Assemble a single instruction into binary code."""
         opcode = self.opcodes.get(instruction['opcode'])
@@ -477,32 +441,13 @@ class SimpleProc8Assembler:
                 if self.debug:
                     self._debug_print(f"LD {reg_name}, #{op2['value']} => {self.format_binary(binary, 'hex')}")
                 
-            elif op2['type'] == 'direct':
-                # LD Rx, [addr]
+            elif self._is_direct_operand(op2):
+                # LD Rx, [addr] / LD Rx, addr  (bracketed or bare, numeric or label)
                 mode = self.ld_modes['direct']
                 inst_byte = (opcode << 4) | (reg << 2) | mode
                 binary.append(inst_byte)
-                
-                # Resolve address or label
-                if 'address' in op2:
-                    binary.append(op2['address'] & 0xFF)
-                    if self.debug:
-                        self._debug_print(f"LD {reg_name}, [0x{op2['address']:02X}] => {self.format_binary(binary, 'hex')}")
-                elif 'label' in op2:
-                    if op2['label'] in self.symbol_table:
-                        addr = self.symbol_table[op2['label']]
-                        binary.append(addr & 0xFF)
-                        # Record symbol reference
-                        symbol_refs.append({
-                            'name': op2['label'],
-                            'addr': instruction.get('binary_offset', 0) + 1,  # Byte after opcode
-                            'resolved_to': addr
-                        })
-                        if self.debug:
-                            self._debug_print(f"LD {reg_name}, [{op2['label']}] (resolved to [0x{addr:02X}]) => {self.format_binary(binary, 'hex')}")
-                    else:
-                        raise SyntaxError(f"Undefined label: {op2['label']}")
-                        
+                self._append_direct_address(binary, op2, symbol_refs, instruction, 'LD', reg_name)
+
             elif op2['type'] == 'indirect' and 'register' in op2 and op2['register'] == self.registers['B']:
                 # LD Rx, [B]
                 mode = self.ld_modes['indirect']
@@ -543,32 +488,13 @@ class SimpleProc8Assembler:
             # Parse second operand for address
             op2 = self._parse_operand(instruction['operands'][1])
             
-            if op2['type'] == 'direct':
-                # ST Rx, [addr]
+            if self._is_direct_operand(op2):
+                # ST Rx, [addr] / ST Rx, addr  (bracketed or bare, numeric or label)
                 mode = self.st_modes['direct']
                 inst_byte = (opcode << 4) | (reg << 2) | mode
                 binary.append(inst_byte)
-                
-                # Resolve address or label
-                if 'address' in op2:
-                    binary.append(op2['address'] & 0xFF)
-                    if self.debug:
-                        self._debug_print(f"ST {reg_name}, [0x{op2['address']:02X}] => {self.format_binary(binary, 'hex')}")
-                elif 'label' in op2:
-                    if op2['label'] in self.symbol_table:
-                        addr = self.symbol_table[op2['label']]
-                        binary.append(addr & 0xFF)
-                        # Record symbol reference
-                        symbol_refs.append({
-                            'name': op2['label'],
-                            'addr': instruction.get('binary_offset', 0) + 1,  # Byte after opcode
-                            'resolved_to': addr
-                        })
-                        if self.debug:
-                            self._debug_print(f"ST {reg_name}, [{op2['label']}] (resolved to [0x{addr:02X}]) => {self.format_binary(binary, 'hex')}")
-                    else:
-                        raise SyntaxError(f"Undefined label: {op2['label']}")
-                        
+                self._append_direct_address(binary, op2, symbol_refs, instruction, 'ST', reg_name)
+
             elif op2['type'] == 'indirect' and 'register' in op2 and op2['register'] == self.registers['B']:
                 # ST Rx, [B]
                 mode = self.st_modes['indirect']
@@ -582,22 +508,51 @@ class SimpleProc8Assembler:
                 
         elif instruction['opcode'] in ['ADD', 'SUB', 'AND', 'OR', 'XOR']:
             if len(instruction['operands']) < 2:
-                raise SyntaxError(f"{instruction['opcode']} requires two operands: {instruction}")
+                self._debug_print(f"{instruction['opcode']} requires at least two operands: {instruction}")
             
-            reg1_name = instruction['operands'][0]
-            reg2_name = instruction['operands'][1]
-            
-            if reg1_name not in self.registers or reg2_name not in self.registers:
-                raise SyntaxError(f"Invalid register(s): {reg1_name}, {reg2_name}")
-            
-            reg1 = self.registers[reg1_name]
-            reg2 = self.registers[reg2_name]
-            
-            inst_byte = (opcode << 4) | (reg1 << 2) | reg2
-            binary.append(inst_byte)
-            
-            if self.debug:
-                self._debug_print(f"{instruction['opcode']} {reg1_name}, {reg2_name} => {self.format_binary(binary, 'hex')}")
+            """
+            Check if it's 3-operand form (ADD Rd, Rs1, Rs2)
+            For 3-Operand form instructions, ONLY register to register mode (0b11) is supported yet.
+            """
+            if len(instruction['operands']) == 3:
+                dest_name = instruction['operands'][0]
+                src1_name = instruction['operands'][1]  
+                src2_name = instruction['operands'][2]
+                
+                if dest_name not in self.registers or src1_name not in self.registers or src2_name not in self.registers:
+                    raise SyntaxError(f"Invalid register(s): {dest_name}, {src1_name}, {src2_name}")
+                
+                dest_reg = self.registers[dest_name]
+                src1_reg = self.registers[src1_name]
+                src2_reg = self.registers[src2_name]
+                
+                # Use mode 0b11 for 3-operand format
+                inst_byte = (opcode << 4) | (dest_reg << 2) | 0b11
+                binary.append(inst_byte)
+                
+                # Pack both source registers into next byte: src1 in upper 2 bits, src2 in lower 2 bits
+                operands_byte = (src1_reg << 2) | src2_reg
+                binary.append(operands_byte)
+                
+                if self.debug:
+                    self._debug_print(f"{instruction['opcode']} {dest_name}, {src1_name}, {src2_name} => {self.format_binary(binary, 'hex')}")
+                    
+            else:
+                # 2-operand form (ADD Rd, Rs)
+                reg1_name = instruction['operands'][0]
+                reg2_name = instruction['operands'][1]
+                
+                if reg1_name not in self.registers or reg2_name not in self.registers:
+                    raise SyntaxError(f"Invalid register(s): {reg1_name}, {reg2_name}")
+                
+                reg1 = self.registers[reg1_name]
+                reg2 = self.registers[reg2_name]
+                
+                inst_byte = (opcode << 4) | (reg1 << 2) | reg2
+                binary.append(inst_byte)
+                
+                if self.debug:
+                    self._debug_print(f"{instruction['opcode']} {reg1_name}, {reg2_name} => {self.format_binary(binary, 'hex')}")
             
         elif instruction['opcode'] in ['INC', 'DEC', 'NOT']:
             if len(instruction['operands']) < 1:
@@ -981,7 +936,7 @@ class SimpleProc8Assembler:
 # Main function to handle command line arguments
 def main():
     import argparse
-    
+
     # Set up command line arguments
     parser = argparse.ArgumentParser(
         description="SimpleProc-8 Assembler",
