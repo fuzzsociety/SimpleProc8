@@ -9,6 +9,13 @@ https://ost2.fyi/Arch1901
 
 You have a basic test suite with jumps, conditions, even bubblesort.
 
+Run `./run_tests.sh` from the repository root to assemble every `tests/*.asm`
+from scratch (into a throwaway build directory) and execute each program. It
+prints a table of ✓/✗ for assembly and execution along with the number of
+instructions executed, and exits non-zero if any test fails. A test passes only
+if it assembles cleanly and the program halts via `HLT` without crashing or
+exceeding the interpreter's instruction cap.
+
 
 ## Collaboration
 

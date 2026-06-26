@@ -31,6 +31,8 @@ Analyzes an individual operand to determine its type:
 - **Indirect register access**: Register name in brackets (e.g., `[B]`)
 - **Label**: Plain text reference to a code location
 
+For `LD` and `ST`, a direct memory address may also be written **without** brackets — a bare number or label (e.g. `LD A, 0x80`, `ST A, count`). Because immediates always carry a `#`, a bare operand is unambiguous and is assembled to exactly the same bytes as the bracketed form. The bracketed style remains the recommended, more explicit convention.
+
 ## Two-Pass Assembly Process
 
 ### First Pass: Symbol Resolution (`_first_pass`)
@@ -116,9 +118,13 @@ All jump instructions (`JMP`, `JZ`, `JNZ`, `JC`) require 2 bytes:
 
 ### Load/Store Operations
 - `LD Rx, #val` (load immediate): 2 bytes
-- `LD Rx, [addr]` (load direct): 2 bytes
+- `LD Rx, [addr]` / `LD Rx, addr` (load direct, bracketed or bare): 2 bytes
 - `LD Rx, [B]` (load indirect): 1 byte
 - `LD Rx, Ry` (register-to-register): 2 bytes
+- `ST Rx, [addr]` / `ST Rx, addr` (store direct, bracketed or bare): 2 bytes
+- `ST Rx, [B]` (store indirect): 1 byte
+
+The bracketed and bare direct forms assemble identically; both occupy 2 bytes, which `_calculate_instruction_size` accounts for so that label offsets stay consistent across the two passes.
 
 ### Register Operations
 Most register operations like `ADD`, `SUB`, `INC`, etc. are 1 byte.

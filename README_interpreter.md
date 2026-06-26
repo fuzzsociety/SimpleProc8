@@ -35,6 +35,12 @@ The constructor initializes the processor state:
 - Status flags that affect program flow
 - 256 bytes of memory (addresses 0x00-0xFF)
 
+Because addresses are 8-bit, the address space wraps at 256: an address of
+`0x100` refers to `0x00`, `0x101` to `0x01`, and so on. Program code and data
+share this single 256-byte space, so an out-of-range address can silently
+alias program bytes. Keep scratch/data addresses within `0x00-0xFF` and clear
+of the loaded program.
+
 ## Loading Programs
 
 ```python
