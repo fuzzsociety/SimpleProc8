@@ -320,14 +320,17 @@ class SimpleProc8Assembler:
             # Register-to-register LD Rx, Ry - FIX: Always 2 bytes
             if op2_str in self.registers:
                 return 2
-                
+
+            # Bare direct address or label: LD Rx, 0x44 / LD Rx, label - 2 bytes
+            return 2
+
         elif opcode == 'ST':
             if len(operands) < 2:
                 return size
-                
+
             # Parse second operand
             op2_str = operands[1]
-            
+
             # Direct memory access ST Rx, [addr] - 2 bytes
             if op2_str.startswith('[') and op2_str.endswith(']'):
                 inner = op2_str[1:-1]
@@ -336,7 +339,10 @@ class SimpleProc8Assembler:
                     return 1
                 # Otherwise it's a memory address, 2 bytes
                 return 2
-                
+
+            # Bare direct address or label: ST Rx, 0x44 / ST Rx, label - 2 bytes
+            return 2
+
         elif opcode == 'JMP':
             # JMP [Rx] (register indirect) is 1 byte; JMP addr/label is 2 bytes
             if operands:
@@ -358,6 +364,38 @@ class SimpleProc8Assembler:
         # All other instructions (INC, DEC, NOT, NOP, HLT, etc.) are 1 byte
         return size   
     
+    def _is_direct_operand(self, op):
+        """True if an operand denotes a direct memory address.
+
+        Accepts both the bracketed forms ([0x44] / [label], parsed as
+        'direct') and the bare forms (0x44 / label, parsed as 'address' /
+        'label'), so LD and ST treat them identically."""
+        return op['type'] in ('direct', 'address', 'label')
+
+    def _append_direct_address(self, binary, op, symbol_refs, instruction, mnemonic, reg_name):
+        """Append the address byte for a direct-addressed LD/ST.
+
+        Resolves labels via the symbol table and records the reference.
+        Handles the differing operand-dict shapes ('address'/'value' for a
+        numeric address, 'label'/'name' for a label) uniformly."""
+        addr = op.get('address', op.get('value'))
+        label = op.get('label', op.get('name'))
+
+        if label is not None:
+            if label not in self.symbol_table:
+                raise SyntaxError(f"Undefined label: {label}")
+            addr = self.symbol_table[label]
+            symbol_refs.append({
+                'name': label,
+                'addr': instruction.get('binary_offset', 0) + 1,  # Byte after opcode
+                'resolved_to': addr
+            })
+
+        binary.append(addr & 0xFF)
+        if self.debug:
+            shown = f"[{label}]" if label is not None else f"[0x{addr:02X}]"
+            self._debug_print(f"{mnemonic} {reg_name}, {shown} => {self.format_binary(binary, 'hex')}")
+
     def _assemble_instruction(self, instruction):
         """Assemble a single instruction into binary code."""
         opcode = self.opcodes.get(instruction['opcode'])
@@ -403,32 +441,13 @@ class SimpleProc8Assembler:
                 if self.debug:
                     self._debug_print(f"LD {reg_name}, #{op2['value']} => {self.format_binary(binary, 'hex')}")
                 
-            elif op2['type'] == 'direct':
-                # LD Rx, [addr]
+            elif self._is_direct_operand(op2):
+                # LD Rx, [addr] / LD Rx, addr  (bracketed or bare, numeric or label)
                 mode = self.ld_modes['direct']
                 inst_byte = (opcode << 4) | (reg << 2) | mode
                 binary.append(inst_byte)
-                
-                # Resolve address or label
-                if 'address' in op2:
-                    binary.append(op2['address'] & 0xFF)
-                    if self.debug:
-                        self._debug_print(f"LD {reg_name}, [0x{op2['address']:02X}] => {self.format_binary(binary, 'hex')}")
-                elif 'label' in op2:
-                    if op2['label'] in self.symbol_table:
-                        addr = self.symbol_table[op2['label']]
-                        binary.append(addr & 0xFF)
-                        # Record symbol reference
-                        symbol_refs.append({
-                            'name': op2['label'],
-                            'addr': instruction.get('binary_offset', 0) + 1,  # Byte after opcode
-                            'resolved_to': addr
-                        })
-                        if self.debug:
-                            self._debug_print(f"LD {reg_name}, [{op2['label']}] (resolved to [0x{addr:02X}]) => {self.format_binary(binary, 'hex')}")
-                    else:
-                        raise SyntaxError(f"Undefined label: {op2['label']}")
-                        
+                self._append_direct_address(binary, op2, symbol_refs, instruction, 'LD', reg_name)
+
             elif op2['type'] == 'indirect' and 'register' in op2 and op2['register'] == self.registers['B']:
                 # LD Rx, [B]
                 mode = self.ld_modes['indirect']
@@ -469,32 +488,13 @@ class SimpleProc8Assembler:
             # Parse second operand for address
             op2 = self._parse_operand(instruction['operands'][1])
             
-            if op2['type'] == 'direct':
-                # ST Rx, [addr]
+            if self._is_direct_operand(op2):
+                # ST Rx, [addr] / ST Rx, addr  (bracketed or bare, numeric or label)
                 mode = self.st_modes['direct']
                 inst_byte = (opcode << 4) | (reg << 2) | mode
                 binary.append(inst_byte)
-                
-                # Resolve address or label
-                if 'address' in op2:
-                    binary.append(op2['address'] & 0xFF)
-                    if self.debug:
-                        self._debug_print(f"ST {reg_name}, [0x{op2['address']:02X}] => {self.format_binary(binary, 'hex')}")
-                elif 'label' in op2:
-                    if op2['label'] in self.symbol_table:
-                        addr = self.symbol_table[op2['label']]
-                        binary.append(addr & 0xFF)
-                        # Record symbol reference
-                        symbol_refs.append({
-                            'name': op2['label'],
-                            'addr': instruction.get('binary_offset', 0) + 1,  # Byte after opcode
-                            'resolved_to': addr
-                        })
-                        if self.debug:
-                            self._debug_print(f"ST {reg_name}, [{op2['label']}] (resolved to [0x{addr:02X}]) => {self.format_binary(binary, 'hex')}")
-                    else:
-                        raise SyntaxError(f"Undefined label: {op2['label']}")
-                        
+                self._append_direct_address(binary, op2, symbol_refs, instruction, 'ST', reg_name)
+
             elif op2['type'] == 'indirect' and 'register' in op2 and op2['register'] == self.registers['B']:
                 # ST Rx, [B]
                 mode = self.st_modes['indirect']
