@@ -8,5 +8,6 @@
 
     LD C, [B]         ; indirect load: C = content at address in B
     ST C, [0x8F]      ; store result
+    LD A, 0x8F
 
     HLT               ; Halt execution
