@@ -33,6 +33,24 @@ Analyzes an individual operand to determine its type:
 
 For `LD` and `ST`, a direct memory address may also be written **without** brackets — a bare number or label (e.g. `LD A, 0x80`, `ST A, count`). Because immediates always carry a `#`, a bare operand is unambiguous and is assembled to exactly the same bytes as the bracketed form. The bracketed style remains the recommended, more explicit convention.
 
+The `#` is the *only* thing that separates an immediate from a direct load — dropping the brackets does **not** turn an operand into an immediate:
+
+| Source            | Mode      | Meaning                          | Bytes            |
+|-------------------|-----------|----------------------------------|------------------|
+| `LD A, #0x65`     | immediate | `A = 0x65` (the literal value)   | `opcode`, `0x65` |
+| `LD A, 0x65`      | direct    | `A = memory[0x65]`               | `opcode`, `0x65` |
+| `LD A, [0x65]`    | direct    | `A = memory[0x65]` (same as above) | `opcode`, `0x65` |
+| `LD A, [B]`       | indirect  | `A = memory[B]` (two-step, see below) | `opcode`      |
+
+**Register indirect (`[B]`) is a two-step dereference.** Unlike direct addressing — where the address is a literal byte carried in the instruction — indirect addressing carries no address at all. The CPU must (1) read the address *out of* register B, then (2) read memory *at* that address. Direct means "the address is here in the instruction"; indirect means "the address is in B." This is why `[B]` occupies only 1 byte (no address operand) while both direct forms need 2.
+
+Note that the ISA has **no single-instruction memory-indirect mode**: `[0x65]` is plain direct addressing, not a pointer dereference. True pointer indirection through a pointer *stored in memory* therefore always takes two loads — first load the pointer from memory into B, then dereference it with `[B]`. See [`tests/test_indir_video.asm`](tests/test_indir_video.asm) for a worked example:
+
+```asm
+    LD B, 0x65        ; B = mem[0x65] = 0x44       (load pointer back into B)
+    LD D, [B]         ; D = mem[B] = mem[0x44] = 5 (dereference -> D = 5)
+```
+
 ## Two-Pass Assembly Process
 
 ### First Pass: Symbol Resolution (`_first_pass`)
